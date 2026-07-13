@@ -1,0 +1,12 @@
+node_modules/
+.claude/
+
+cli/logs/
+cli/midnight-level-db/
+contract/dist/
+contract/reports/
+frontend/dist/
+frontend/public/zk/
+
+*.log
+.DS_Store
