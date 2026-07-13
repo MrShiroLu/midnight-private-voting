@@ -1,0 +1,37 @@
+pragma language_version >= 0.20;
+
+import CompactStandardLibrary;
+
+export ledger admin: Bytes<32>;
+export ledger eligibleVoters: Map<Bytes<32>, Boolean>;
+export ledger hasVoted: Map<Bytes<32>, Boolean>;
+export ledger yesCount: Counter;
+export ledger noCount: Counter;
+
+witness localSecretKey(): Bytes<32>;
+
+constructor(adminPk: Bytes<32>) {
+  admin = disclose(adminPk);
+}
+
+export circuit registerVoter(voterPk: Bytes<32>): [] {
+  const callerPk = disclose(publicKey(localSecretKey()));
+  assert(callerPk == admin, "Only admin can register voters");
+  eligibleVoters.insert(disclose(voterPk), true);
+}
+
+export circuit vote(choice: Boolean): [] {
+  const pk = disclose(publicKey(localSecretKey()));
+  assert(eligibleVoters.member(pk), "Not an eligible voter");
+  assert(!hasVoted.member(pk), "Already voted");
+  hasVoted.insert(pk, true);
+  if (disclose(choice)) {
+    yesCount.increment(1);
+  } else {
+    noCount.increment(1);
+  }
+}
+
+export circuit publicKey(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "voting:pk:"), sk]);
+}
