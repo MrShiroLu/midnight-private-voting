@@ -121,7 +121,7 @@ export default function App() {
   const [wallets, setWallets] = useState<DetectedWallet[]>(() => detectWallets());
   const [connectedApi, setConnectedApi] = useState<ConnectedAPI | null>(null);
   const [providers, setProviders] = useState<PrivateVotingProviders | null>(null);
-  const [address, setAddress] = useState('');
+  const [address, setAddress] = useState(() => new URLSearchParams(window.location.search).get('address') ?? '');
   const [contract, setContract] = useState<DeployedPrivateVotingContract | null>(null);
   const [tallies, setTallies] = useState<Tallies | null>(null);
   const [myChoice, setMyChoice] = useState<boolean | null>(null);
@@ -138,6 +138,17 @@ export default function App() {
   const requestId = useRef(0);
 
   const secretKey = loadOrCreateSecretKey();
+
+  // A shared join link can carry the title as a query param so voters see
+  // the same name the admin picked, without putting it on-chain.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const linkedAddress = params.get('address');
+    const linkedTitle = params.get('title');
+    if (linkedAddress && linkedTitle) {
+      localStorage.setItem(`${TITLE_STORAGE_PREFIX}${linkedAddress}`, linkedTitle);
+    }
+  }, []);
 
   useEffect(() => {
     if (wallets.length > 0) return;
@@ -423,7 +434,12 @@ export default function App() {
           )}
           {contract && isAdmin && createdAddress && (
             <p className="status" style={{ marginTop: 8 }}>
-              Deployed! Share this contract address with your voters: <code>{createdAddress}</code>
+              Deployed! Share this link with your voters so they see the same title:
+              <br />
+              <code>
+                {window.location.origin}
+                {window.location.pathname}?address={createdAddress}&title={encodeURIComponent(title)}
+              </code>
             </p>
           )}
           {contract && isAdmin && (
@@ -466,7 +482,15 @@ export default function App() {
 
       {tallies && (
         <div className="card">
-          <h3>Results{title && `: ${title}`}</h3>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3>Results{title && `: ${title}`}</h3>
+            <button
+              className="secondary"
+              onClick={() => providers && refreshTallies(providers, address)}
+            >
+              Refresh
+            </button>
+          </div>
           <div className="results-row">
             <div>
               <div className="tally">
