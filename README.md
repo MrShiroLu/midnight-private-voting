@@ -3,6 +3,8 @@
 Anonymous DAO voting on Midnight. Every vote is proven eligible and counted
 exactly once, without revealing who voted or what they chose.
 
+- Demo Link: https://midnight-private-voting-frontend.vercel.app
+
 ## Contract Address
 
 | Network | Address |
