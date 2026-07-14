@@ -18,6 +18,7 @@ const NETWORK_ID = 'preprod';
 const SECRET_KEY_STORAGE_KEY = 'private-voting:my-secret-key';
 const TITLE_STORAGE_PREFIX = 'private-voting:title:';
 const MY_VOTES_STORAGE_KEY = 'private-voting:my-votes';
+const CONNECT_TIMEOUT_MS = 45_000;
 const JOIN_TIMEOUT_MS = 30_000;
 // Deploy chains two sequential on-chain txs (deploy + registerVoter), each needing its own
 // proof + confirmation — needs much more headroom than a single read-only join.
@@ -93,7 +94,17 @@ const ASSERT_MESSAGES: Record<string, string> = {
 
 // Some SDK errors (e.g. effect's FiberFailure) are Error instances with an
 // empty `.message` — the real reason only shows up in `.toString()`.
+// Lace's extension background process can be recycled by the browser while
+// idle (e.g. during proof generation); any API object obtained before that
+// throws this on its next use and can never work again - the only fix is
+// to reconnect.
+const isStaleWalletChannel = (e: unknown): boolean =>
+  e instanceof Error && /channel .* was shutdown/i.test(e.message);
+
 const describeError = (e: unknown): string => {
+  if (isStaleWalletChannel(e)) {
+    return 'Your wallet connection expired in the background. Please reconnect and try again.';
+  }
   const raw = e instanceof Error ? e.message || String(e) : String(e);
   const reason = raw.match(/failed assert: (.+)$/)?.[1]?.trim();
   return (reason && ASSERT_MESSAGES[reason]) || raw;
@@ -148,15 +159,23 @@ export default function App() {
     setError('');
     setStatus(`Connecting to ${wallet.name}...`);
     try {
-      const api = await connectWallet(wallet, NETWORK_ID);
+      const api = await withTimeout(
+        connectWallet(wallet, NETWORK_ID),
+        CONNECT_TIMEOUT_MS,
+        `${wallet.name} didn't respond — check for a blocked approval popup and try again`,
+      );
       setStatus('Loading network configuration...');
-      const built = await buildBrowserProviders(api);
+      const built = await withTimeout(
+        buildBrowserProviders(api),
+        CONNECT_TIMEOUT_MS,
+        'Timed out loading network configuration from the wallet',
+      );
       setConnectedApi(api);
       setProviders(built);
       setStatus('');
     } catch (e) {
       console.error('Wallet connect failed:', e);
-      setError(describeError(e));
+      reportError(e);
       setStatus('');
     }
   };
@@ -169,6 +188,13 @@ export default function App() {
     setMyChoice(null);
     setIsAdmin(false);
     setRegisteredVoters([]);
+  };
+
+  // A stale wallet channel can never recover - force a reconnect instead of
+  // leaving the user stuck retrying the same dead connection.
+  const reportError = (e: unknown) => {
+    setError(describeError(e));
+    if (isStaleWalletChannel(e)) handleDisconnect();
   };
 
   const refreshTallies = async (currentProviders: PrivateVotingProviders, contractAddress: string) => {
@@ -208,7 +234,7 @@ export default function App() {
     } catch (e) {
       console.error('Join failed:', e);
       if (requestId.current !== thisRequest) return;
-      setError(describeError(e));
+      reportError(e);
       setStatus('');
     }
   };
@@ -241,7 +267,7 @@ export default function App() {
     } catch (e) {
       console.error('Create vote failed:', e);
       if (requestId.current !== thisRequest) return;
-      setError(describeError(e));
+      reportError(e);
       setStatus('');
     }
   };
@@ -269,7 +295,7 @@ export default function App() {
       setVoterPkInput('');
       setStatus('');
     } catch (e) {
-      setError(describeError(e));
+      reportError(e);
       setStatus('');
     }
   };
@@ -284,7 +310,7 @@ export default function App() {
       await refreshTallies(providers, address);
       setStatus('');
     } catch (e) {
-      setError(describeError(e));
+      reportError(e);
       setStatus('');
     }
   };
@@ -445,7 +471,7 @@ export default function App() {
             <div>
               <div className="tally">
                 <span className="yes">Yes: {tallies.yes.toString()} ({yesPct.toFixed(0)}%)</span>
-                <span className="no">No: {tallies.no.toString()} ({(100 - yesPct).toFixed(0)}%)</span>
+                <span className="no">No: {tallies.no.toString()} ({(totalVotes > 0 ? 100 - yesPct : 0).toFixed(0)}%)</span>
               </div>
               <p className="status">{tallies.hasVotedCount.toString()} vote(s) recorded in total.</p>
             </div>
